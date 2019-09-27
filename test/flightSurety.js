@@ -196,7 +196,8 @@ contract('Flight Surety Tests', async (accounts) => {
         for (let h=1; h<5; h++) {
             // Vote
             let registeredAirline = accounts[h]
-            await config.flightSuretyData.aproveAirline(newAirline, votes[h-1], {from: registeredAirline});
+            console.log(`AIRLINE to VOTE: ${registeredAirline}`);
+            await config.flightSuretyApp.aproveAirline(newAirline, votes[h-1], {from: registeredAirline});
 
             let result2 = await config.flightSuretyData.getVotesInfo.call(newAirline);
             

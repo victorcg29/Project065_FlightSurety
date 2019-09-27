@@ -153,6 +153,19 @@ contract FlightSuretyApp {
         
     }
 
+    function aproveAirline
+                            (
+                                address airline,
+                                bool vote
+                            )
+                            external
+                            requireIsOperational
+    {
+        require(dataContract.isAirlineFunded(msg.sender), "Voting airline is not funded");
+        require(!dataContract.isAirlineAproved(airline), "Airline already approved");
+        dataContract.aproveAirline(airline, vote, msg.sender);
+    }
+
     function fundAirline()
                             external
                             payable
@@ -410,6 +423,7 @@ contract FlightSuretyData
     function getNumRegAirlines() public returns(uint);
     //function fundAirline(address wallet, uint amount) external payable;
     function fundAirline(address wallet, uint amount) external payable;
+    function aproveAirline(address airline, bool vote, address voter) external;
 
 }
 

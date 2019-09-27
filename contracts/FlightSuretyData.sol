@@ -365,29 +365,31 @@ contract FlightSuretyData {
     function aproveAirline
                         (
                             address airlineWallet,
-                            bool aproved
+                            bool aproved,
+                            address voter
                         )
+                        external
                         requireIsOperational
     {
-        require(airlines[msg.sender].isFunded, "Voting airline is not funded");
-        require(!airlines[airlineWallet].isAproved, "Airline already approved");
+        //equire(airlines[msg.sender].isFunded, "Voting airline is not funded");
+        //require(!airlines[airlineWallet].isAproved, "Airline already approved");
 
         bool alreadyVoted = false;
         for (uint c=0; c<votes[airlineWallet].addresses.length; c++)
         {
-            if (votes[airlineWallet].addresses[c] == msg.sender) {
+            if (votes[airlineWallet].addresses[c] == voter) {
                 alreadyVoted = true;
                 break;
             }
         }
 
         require(!alreadyVoted, "This airline has already voted");
-        votes[airlineWallet].addresses.push(msg.sender);
+        votes[airlineWallet].addresses.push(voter);
         if (aproved) {
             votes[airlineWallet].numVotes++;
         }
 
-        emit AirlineVoted(airlineWallet, msg.sender);
+        emit AirlineVoted(airlineWallet, voter);
 
         if (votes[airlineWallet].numVotes >= votes[airlineWallet].requiredVotes) {
             airlines[airlineWallet].isAproved = true;
