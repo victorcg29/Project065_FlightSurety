@@ -70,6 +70,7 @@ contract FlightSuretyData {
     event AirlineAproved(address _address);
     event AirlineVoted(address newAirline, address voter);
     event FlightRegistered(address _address, string _flightCode, uint256 _timestamp);
+    event VotingRoundAdded(address _address);
 
 
     /**
@@ -78,13 +79,14 @@ contract FlightSuretyData {
     */
     constructor
                                 (
-                                    address firstAirline
+                                    address airline
                                 ) 
                                 public 
     {
         contractOwner = msg.sender;
-        //_registerAirline(firstAirline, true, true, false);
-        _registerAirline(firstAirline);
+        _registerAirline(airline, true, true, false);
+        firstAirline = airline;
+        //_registerAirline(firstAirline);
     }
 
     /********************************************************************************************/
@@ -220,8 +222,28 @@ contract FlightSuretyData {
         );
     }
 
+    function getFirstAirline()
+                                external
+                                requireIsOperational
+                                returns(address)
+    {
+        return firstAirline;
+    }
+
+    function isAirlineFunded
+                            (
+                                address airline
+                            )
+                            external
+                            requireIsOperational
+                            returns(bool)
+    {
+        return airlines[airline].isFunded;
+
+    }
+
     function getNumRegAirlines()
-                                external 
+                                external
                                 requireIsOperational
                                 returns(uint)
     {
@@ -260,13 +282,16 @@ contract FlightSuretyData {
     */   
     function registerAirline
                             (
-                                address wallet           
+                                address wallet,
+                                bool isRegistered,
+                                bool isAproved,
+                                bool isFunded        
                             )
                             external
                             requireIsOperational
     {
-        //_registerAirline(wallet, isRegistered, isAproved, isFunded);
-        _registerAirline(wallet);
+        _registerAirline(wallet, isRegistered, isAproved, isFunded);
+       // _registerAirline(wallet);
     }
 
     function registerFlight
@@ -277,6 +302,7 @@ contract FlightSuretyData {
                             external
                             requireIsOperational
     {
+        
         require(airlines[msg.sender].isFunded, "Airline is not funded");
         bytes32 flightKey = _getFlightKey(msg.sender, flightCode, timestamp);
         flights[flightKey] = Flight({
@@ -289,73 +315,51 @@ contract FlightSuretyData {
 
         // Emit event
         emit FlightRegistered(msg.sender, flightCode,  timestamp);
+        
     }
 
+
+    function addVotingRound
+                            (
+                                address airline,
+                                uint requiredVotes
+                            )
+                            external
+                            requireIsOperational
+    {
+        
+        votes[airline] = VoteSystem({
+                                        addresses: new address[](0),
+                                        numVotes: 0,
+                                        requiredVotes: requiredVotes
+                                    });
+        emit VotingRoundAdded(airline);
+        
+    }
 
 
     function _registerAirline
                             (   
-                                address wallet
+                                address wallet,
+                                bool isRegistered,
+                                bool isAproved,
+                                bool isFunded
                             )
                             internal
                             requireIsOperational
-    {
-        require(!airlines[wallet].isRegistered, "Airline already registred");
-        /*
+    {   
         airlines[wallet] = Airline({
                                         isRegistered: isRegistered,
                                         isAproved: isAproved,
                                         isFunded: isFunded
                                     });
 
+        num_reg_airlines++;
         // Emit event
         emit AirlineRegistered(wallet);
-        */
-        
-        if (num_reg_airlines == 0) {
-            // Regiter new airline
-            airlines[wallet] = Airline({
-                                            isRegistered: true,
-                                            isAproved: true,
-                                            isFunded: false
-                                        });
-            firstAirline = wallet;
-            // Emit events
-            emit AirlineRegistered(wallet);
-            emit AirlineAproved(wallet);
-            
-        }
-        else if (num_reg_airlines < 4) {
-            require(msg.sender == firstAirline, "Only the first registered ariline can register");
-            require(airlines[msg.sender].isFunded, "First registered airline is not funded");
-            airlines[wallet] = Airline({
-                                            isRegistered: true,
-                                            isAproved: true,
-                                            isFunded: false
-                                        });
-            // Emit events
-            emit AirlineRegistered(wallet);
+        if (isAproved) {
             emit AirlineAproved(wallet);
         }
-        else if (num_reg_airlines >= 4) {
-            require(airlines[msg.sender].isFunded, "Airline to add new register is not funded");
-
-            uint256 requiredVotes = num_reg_airlines.div(2) + (num_reg_airlines % 2);
-            airlines[wallet] = Airline({
-                                            isRegistered: true,
-                                            isAproved: false,
-                                            isFunded: false
-                                        });
-            votes[wallet] = VoteSystem({
-                                            addresses: new address[](0),
-                                            requiredVotes: requiredVotes,
-                                            numVotes: 0
-                                        });
-            // Emit events
-            emit AirlineRegistered(wallet);
-        }
-
-        num_reg_airlines++;
     }
 
     function aproveAirline
@@ -438,22 +442,27 @@ contract FlightSuretyData {
     *      resulting in insurance payouts, the contract should be self-sustaining
     *
     */   
+    function fundAirline
+                            (
+                                address airline,
+                                uint amount
+                            )
+                            external
+                            requireIsOperational
+    {
+        airlines[airline].isFunded = true;
+        airlineBalances[airline].add(amount);
+        // Emit event
+        emit AirlineFunded(airline, amount);
+
+    }
+
     function fund
                             (   
                             )
                             public
                             payable
-                            requireIsOperational
     {
-        require(airlines[msg.sender].isAproved, "Airline is not approved");
-        require(!airlines[msg.sender].isFunded, "Airline already funded");
-        require(msg.value >= 10 ether, "The funding has to be at least of 10 ether");
-
-        airlines[msg.sender].isFunded = true;
-        airlineBalances[msg.sender].add(msg.value);
-        // Emit event
-        emit AirlineFunded(msg.sender, msg.value);
-
     }
 
     function getFlightKey

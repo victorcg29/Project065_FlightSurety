@@ -81,7 +81,8 @@ contract('Flight Surety Tests', async (accounts) => {
 
     // ACT
     try {
-        await config.flightSuretyApp.registerAirline(newAirline, {from: config.firstAirline});
+
+        await config.flightSuretyApp.registerAirline.call(newAirline, {from: config.firstAirline});
     }
     catch(e) {
 
@@ -103,20 +104,22 @@ contract('Flight Surety Tests', async (accounts) => {
 
         let result1 = await config.flightSuretyData.getAirlineStatus.call(config.firstAirline);
 
-        console.log(`Registered: ${result1[0]}, aproved: ${result1[1]}, active: ${result1[2]}, numRegAirlines: ${result1[3]}`);
+        console.log(`Registered: ${result1[0]}, aproved: ${result1[1]}, active: ${result1[2]}`);
 
-        await config.flightSuretyData.fund({value: AIRLINE_FUNDED_AMOUNT, from: config.firstAirline});
+        await config.flightSuretyApp.fundAirline({value: AIRLINE_FUNDED_AMOUNT, from: config.firstAirline});
 
         let result2 = await config.flightSuretyData.getAirlineStatus.call(config.firstAirline);
 
         console.log(`After funding -> Registered: ${result2[0]}, aproved: ${result2[1]}, active: ${result2[2]}`);
 
         
-        await config.flightSuretyData.registerAirline(newAirline, {from: config.firstAirline});
+        await config.flightSuretyApp.registerAirline(newAirline, {from: config.firstAirline});
 
         result = await config.flightSuretyData.isAirlineRegistered.call(newAirline);
     }
     catch(e) {
+
+        console.log(`ERROR (register new airline): ${e}`);
 
     }
 
@@ -139,7 +142,7 @@ contract('Flight Surety Tests', async (accounts) => {
             let numAirlines = await config.flightSuretyData.getNumRegAirlines.call();
             console.log(`Registered airines: ${numAirlines}`);
             let newAirline = accounts[a];
-            await config.flightSuretyData.registerAirline(newAirline, {from: config.firstAirline});
+            await config.flightSuretyApp.registerAirline(newAirline, {from: config.firstAirline});
     
             let result1 = await config.flightSuretyData.getAirlineStatus.call(newAirline);
 
@@ -172,7 +175,7 @@ contract('Flight Surety Tests', async (accounts) => {
 
         for (let j=2; j<5; j++) {
             let registeredAirline = accounts[j];
-            await config.flightSuretyData.fund({value: AIRLINE_FUNDED_AMOUNT, from: registeredAirline});
+            await config.flightSuretyApp.fundAirline({value: AIRLINE_FUNDED_AMOUNT, from: registeredAirline});
 
             // Fund the airline
             let result1 = await config.flightSuretyData.getAirlineStatus.call(registeredAirline);
@@ -182,7 +185,7 @@ contract('Flight Surety Tests', async (accounts) => {
 
         // Register new airline
 
-        await config.flightSuretyData.registerAirline(newAirline, {from: accounts[3]});
+        await config.flightSuretyApp.registerAirline(newAirline, {from: accounts[3]});
 
         let res = await config.flightSuretyData.getAirlineStatus.call(newAirline);
 
@@ -241,5 +244,6 @@ contract('Flight Surety Tests', async (accounts) => {
     //ASSERT
   });
  
+  
 
 });

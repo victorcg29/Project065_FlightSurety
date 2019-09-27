@@ -24,6 +24,10 @@ contract FlightSuretyApp {
     uint8 private constant STATUS_CODE_LATE_TECHNICAL = 40;
     uint8 private constant STATUS_CODE_LATE_OTHER = 50;
 
+    // % Consensus
+    uint private constant CONSENSUS = 50;
+    uint private constant AIRLINE_FEE = 10 ether;
+
     address private contractOwner;          // Account used to deploy contract
 
     struct Flight {
@@ -75,12 +79,12 @@ contract FlightSuretyApp {
     */
     constructor
                                 (
-                                    address dataContract                                ) 
+                                    address contractAddress                             
+                                ) 
                                 public 
     {
         contractOwner = msg.sender;
-        dataContract = FlightSuretyData(dataContract);
-        //_registerAirline(firstAirline, true, true, false);
+        dataContract = FlightSuretyData(contractAddress);
         
     }
 
@@ -97,6 +101,7 @@ contract FlightSuretyApp {
         return isOperational;  // Modify to call data contract's status
     }
 
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -107,22 +112,62 @@ contract FlightSuretyApp {
     *
     */   
     function registerAirline
-                            (   
+                            (
+                                address airline
                             )
                             external
-                            returns(bool success, uint256 votes)
+                            requireIsOperational
     {
-        
-        return (success, 0);
+        _registerAirline(airline);
     }
 
     function _registerAirline
                             (
-
+                                address wallet
                             )
                             internal
                             requireIsOperational
+    {   
+        uint regAirlines = dataContract.getNumRegAirlines();
+        if (regAirlines == 0) {
+            // Regiter new airline
+            dataContract.registerAirline(wallet, true, true, false);
+            
+        }
+        else if (regAirlines < 4) {
+            address firstAirline = dataContract.getFirstAirline();
+            bool isFunded = dataContract.isAirlineFunded(firstAirline);
+            require(msg.sender == firstAirline, "Only the first registered ariline can register");
+            require(isFunded, "First registered airline is not funded");
+            dataContract.registerAirline(wallet, true, true, false);
+        }
+        
+        else if (regAirlines >= 4) {
+            bool isAirlineFunded = dataContract.isAirlineFunded(msg.sender);
+            require(isAirlineFunded, "Airline to add new register is not funded");
+            uint256 requiredVotes = regAirlines.mul(CONSENSUS).div(100).add(1);
+            //uint256 requiredVotes = 4;
+            dataContract.registerAirline(wallet, true, false, false);
+            dataContract.addVotingRound(wallet, requiredVotes);
+        }
+        
+    }
+
+    function fundAirline()
+                            external
+                            payable
+                            requireIsOperational
     {
+        
+        require(dataContract.isAirlineRegistered(msg.sender), "Airline not registered");
+        require(dataContract.isAirlineAproved(msg.sender), "Airline is not approved");
+        require(!dataContract.isAirlineFunded(msg.sender), "Airline already funded");
+        require(msg.value >= AIRLINE_FEE, "The funding has to be at least of 10 ether");
+
+        //dataContract.fundAirline.value(AIRLINE_FEE)(msg.sender);
+        //dataContract.fundAirline(msg.sender, AIRLINE_FEE);
+        address(dataContract).transfer(msg.value);
+        dataContract.fundAirline(msg.sender, msg.value);
         
     }
 
@@ -354,7 +399,18 @@ contract FlightSuretyApp {
 
 contract FlightSuretyData 
 {
-    function registerAirline(address wallet);
+    function registerAirline(address wallet, bool isRegistered, bool isAproved, bool isFunded);
+    function addVotingRound(address airline, uint requiredVotes);
+
     function isOperational() public view returns(bool);
+    function getFirstAirline() public returns(address);
+    function isAirlineFunded(address wallet) public returns(bool);
+    function isAirlineAproved(address wallet) public returns(bool);
+    function isAirlineRegistered(address wallet) public returns(bool);
+    function getNumRegAirlines() public returns(uint);
+    //function fundAirline(address wallet, uint amount) external payable;
+    function fundAirline(address wallet, uint amount) external payable;
+
 }
+
 
