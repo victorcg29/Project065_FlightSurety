@@ -191,29 +191,101 @@ contract FlightSuretyApp {
     */  
     function registerFlight
                                 (
+                                    string flightCode,
+                                    uint timestamp
                                 )
                                 external
-                                pure
+                                requireIsOperational
     {
+        require(dataContract.isAirlineFunded(msg.sender), "Airline is not funded");
+        dataContract.registerFlight(flightCode, timestamp, msg.sender);
+    }
 
+    function purchaseInsurance
+                                (
+                                    bytes32 flightKey
+                                )
+                                external
+                                payable
+                                requireIsOperational
+    {
+        require(dataContract.isFlightRegistered(flightKey), "This flight is not registered");
+        require(msg.value > 0, "Transaction can not be empty");
+        require(msg.value <= 1 ether, "The maximum amount to pay is 1 ether");
+        address(dataContract).transfer(msg.value);
+        dataContract.buy(flightKey, msg.sender, msg.value);
+
+    }
+
+    function insurancePayout
+                            (
+                                address passenger
+                            )
+                            external
+                            requireIsOperational
+    {
+        require(dataContract.isPassengerRegistered(passenger), "Passenger is not registered");
+        require(dataContract.isPassengerEligibleForPayout(passenger), "Passanger is not eligible for the payout");
+        dataContract.creditInsurees(passenger);
+    }
+
+    function withdrawBalance
+                            (
+                                address passenger,
+                                uint amount
+                            )
+                            external
+                            requireIsOperational
+    {
+        require(dataContract.isEligibleToWithdraw(passenger, amount), "Passenger is not eligible to withdraw funds");
+        dataContract.pay(passenger, amount);
     }
     
    /**
     * @dev Called after oracle has updated flight status
     *
     */  
-    function processFlightStatus
+    function _processFlightStatus
                                 (
                                     address airline,
-                                    string memory flight,
+                                    string flight,
                                     uint256 timestamp,
                                     uint8 statusCode
                                 )
                                 internal
-                                pure
+                                requireIsOperational
     {
-    }
+        bytes32 flightKey = dataContract.getFlightKey(airline, flight, timestamp);
+        require(dataContract.isFlightRegistered(flightKey), "Flight is not registered");
 
+        dataContract.updateFlightStatus(flightKey, statusCode);
+
+        if (statusCode == STATUS_CODE_LATE_AIRLINE) {
+            uint insuranceId = dataContract.getNumInsurances();
+            for (uint i=0; i < insuranceId; i++) {
+                if (dataContract.isInsuranceFromFlight(flightKey, i)) {
+                    uint amountPayed = dataContract.getInsurancePayedAmount(i);
+                    uint amountToPay = amountPayed.mul(3).div(2);
+                    dataContract.updateFlightInsurance(i, amountToPay);
+                }
+                
+            }
+        }
+    }
+    
+
+    function processFlightStatus
+                                (
+                                    address airline,
+                                    string flight,
+                                    uint256 timestamp,
+                                    uint8 statusCode
+                                )
+                                external
+                                requireIsOperational
+    {
+        _processFlightStatus(airline, flight, timestamp, statusCode);
+    }
 
     // Generate a request for oracles to fetch flight information
     function fetchFlightStatus
@@ -344,7 +416,7 @@ contract FlightSuretyApp {
             emit FlightStatusInfo(airline, flight, timestamp, statusCode);
 
             // Handle flight status as appropriate
-            processFlightStatus(airline, flight, timestamp, statusCode);
+            _processFlightStatus(airline, flight, timestamp, statusCode);
         }
     }
 
@@ -424,6 +496,20 @@ contract FlightSuretyData
     //function fundAirline(address wallet, uint amount) external payable;
     function fundAirline(address wallet, uint amount) external payable;
     function aproveAirline(address airline, bool vote, address voter) external;
+    function registerFlight(string flightCode, uint timestamp, address airline) external;
+    function isFlightRegistered(bytes32 flightKey) external returns(bool);
+    function buy(bytes32 flightKey, address passenger, uint amount) external payable;
+    function getFlightKey(address airline, string flightCode, uint256 timestamp) external returns(bytes32);
+    function updateFlightStatus(bytes32 flightKey, uint8 statusCode) external;
+    function getInsurancePayedAmount(uint insuranceId) external returns(uint);
+    function updateFlightInsurance(uint insuranceId, uint amountToPay) external;
+    function getNumInsurances() external returns(uint);
+    function isInsuranceFromFlight(bytes32 flightKey, uint index) external returns(bool);
+    function isPassengerRegistered(address passenger) external returns(bool);
+    function isPassengerEligibleForPayout(address passenger) external constant returns(bool);
+    function creditInsurees(address passenger) external;
+    function isEligibleToWithdraw(address passenger, uint amount) external returns(bool);
+    function pay(address passenger, uint amount) external;
 
 }
 

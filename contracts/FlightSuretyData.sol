@@ -12,6 +12,7 @@ contract FlightSuretyData {
     address private contractOwner;                                      // Account used to deploy contract
     bool private operational = true;                                    // Blocks all state changes throughout the contract if false
     uint256  num_reg_airlines = 0;
+    uint256 insuranceId = 0;
     address private firstAirline;                                       // First registered Airline
 
     struct Airline {
@@ -39,6 +40,7 @@ contract FlightSuretyData {
         string flightCode;
         bytes32 flightKey;
         uint256 amountPayed;
+        uint256 amountToPay;
         bool isRegistered;
         bool isRefunded;
 
@@ -46,7 +48,8 @@ contract FlightSuretyData {
 
     struct Passanger {
         uint256 balance;
-        FlightInsurance[] insurances;
+        bool isRegistered;
+        uint256[] insuranceIds;
     }
 
 
@@ -58,7 +61,8 @@ contract FlightSuretyData {
 
     mapping(address => uint256) private authorizedContracts;
 
-    mapping(address => Passanger) private passangers;
+    mapping(address => Passanger) private passengers;
+    mapping(uint256 => FlightInsurance) private insurances;
     
 
     /********************************************************************************************/
@@ -71,7 +75,11 @@ contract FlightSuretyData {
     event AirlineVoted(address newAirline, address voter);
     event FlightRegistered(address _address, string _flightCode, uint256 _timestamp);
     event VotingRoundAdded(address _address);
-
+    event InsurancePurchased(address passenger, address airline, string flightCode, uint amountPayed);
+    event FlightStatusUpdated(address _address, string _flightCode, uint256 _timestamp, uint _statusCode);
+    event FlightInsuranceUpdated(uint insuranceId, address airline, string flightCode, uint amountToPay);
+    event InsuranceCredited(address passenger, string flightCode, uint amount);
+    event InsureeWithdrawn(address passenger, uint amount);
 
     /**
     * @dev Constructor
@@ -188,6 +196,17 @@ contract FlightSuretyData {
         return flights[flightKey].isRegistered;
     }
 
+    function isPassengerRegistered
+                                    (
+                                        address passenger
+                                    )
+                                    external
+                                    requireIsOperational
+                                    returns(bool)
+    {
+        return passengers[passenger].isRegistered;
+    }
+
     function authorizeCaller
                             (
                                 address contractAddress
@@ -222,12 +241,88 @@ contract FlightSuretyData {
         );
     }
 
+    function getFlightStatus
+                            (
+                                address airline,
+                                string flightCode,
+                                uint256 timestamp
+                            )
+                            returns(uint8)
+    {
+        bytes32 flightKey = _getFlightKey(airline, flightCode, timestamp);
+        return flights[flightKey].statusCode;
+    }
+
     function getFirstAirline()
                                 external
                                 requireIsOperational
                                 returns(address)
     {
         return firstAirline;
+    }
+
+
+    function isInsuranceFromFlight
+                                    (
+                                        bytes32 flightKey,
+                                        uint index
+                                    )
+                                    external
+                                    requireIsOperational
+                                    returns(bool)
+    {
+        return (insurances[index].flightKey == flightKey);
+    }
+
+    function getNumInsurances()
+                                external
+                                requireIsOperational
+                                returns(uint)
+    {
+        return insuranceId;
+    }
+
+    function isPassengerEligibleForPayout
+                                        (
+                                            address passenger
+                                        )
+                                        external
+                                        constant
+                                        requireIsOperational
+                                        returns(bool)
+    {
+        bool isEligible = false;
+        for (uint i=0; i < passengers[passenger].insuranceIds.length; i++) {
+            uint insuranceId = passengers[passenger].insuranceIds[i];
+            if (insurances[insuranceId].amountToPay > 0)
+            {
+                isEligible = true;
+                break;
+            }
+        }
+        return isEligible;
+    }
+    function getInsurancePayedAmount
+                                    (
+                                        uint insuranceId
+                                    )
+                                    external
+                                    requireIsOperational
+                                    returns(uint)
+    {
+        return insurances[insuranceId].amountPayed;
+    }
+
+    function getPassengerBalance
+                                (
+                                    address passenger
+                                )
+                                external
+                                constant
+                                requireIsOperational
+                                returns(uint)
+    {
+        return passengers[passenger].balance;
     }
 
     function isAirlineFunded
@@ -271,6 +366,71 @@ contract FlightSuretyData {
         );
     }
 
+    function getInsuranceInfo
+                            (
+                                address passenger,
+                                string flightCode
+                            )
+                            external
+                            requireIsOperational
+                            returns
+                                    (
+                                        address airline,
+                                        uint256 amount,
+                                        uint256 amountToPay,
+                                        bool isRegistered,
+                                        bool isRefunded
+                                    )
+    {
+
+        for(uint i=0; i < passengers[passenger].insuranceIds.length; i++) {
+            uint insuranceId = passengers[passenger].insuranceIds[i];
+            if (keccak256(bytes(insurances[insuranceId].flightCode)) == keccak256(bytes(flightCode))) {
+                airline = insurances[insuranceId].airline;
+                amount = insurances[insuranceId].amountPayed;
+                amountToPay = insurances[insuranceId].amountToPay;
+                isRegistered = insurances[insuranceId].isRegistered;
+                isRefunded = insurances[insuranceId].isRefunded;
+                
+                break;
+            }
+        }
+
+        return
+                (
+                    airline,
+                    amount,
+                    amountToPay,
+                    isRegistered,
+                    isRefunded
+                );
+    }
+
+    function isEligibleToWithdraw
+                                (
+                                    address passenger,
+                                    uint amount
+                                )
+                                external
+                                constant
+                                requireIsOperational
+                                returns(bool)
+    {
+        return (passengers[passenger].balance >= amount);
+    }
+
+    function getAirlineBalane
+                            (
+                                address airline
+                            )
+                            external
+                            constant
+                            requireIsOperational
+                            returns(uint)
+    {
+        return airlineBalances[airline];
+    }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -297,16 +457,17 @@ contract FlightSuretyData {
     function registerFlight
                             (
                                 string flightCode,
-                                uint timestamp
+                                uint timestamp,
+                                address airline
                             )
                             external
                             requireIsOperational
     {
         
-        require(airlines[msg.sender].isFunded, "Airline is not funded");
-        bytes32 flightKey = _getFlightKey(msg.sender, flightCode, timestamp);
+        
+        bytes32 flightKey = _getFlightKey(airline, flightCode, timestamp);
         flights[flightKey] = Flight({
-                                airline: msg.sender,
+                                airline: airline,
                                 isRegistered: true,
                                 flightCode: flightCode,
                                 timestamp: timestamp,
@@ -316,6 +477,19 @@ contract FlightSuretyData {
         // Emit event
         emit FlightRegistered(msg.sender, flightCode,  timestamp);
         
+    }
+
+    function updateFlightStatus
+                                (
+                                    bytes32 flightKey,
+                                    uint8 status
+                                )
+                                external
+                                view
+                                requireIsOperational
+    {
+        flights[flightKey].statusCode = status;
+        emit FlightStatusUpdated(flights[flightKey].airline, flights[flightKey].flightCode, flights[flightKey].timestamp, status);
     }
 
 
@@ -335,6 +509,18 @@ contract FlightSuretyData {
                                     });
         emit VotingRoundAdded(airline);
         
+    }
+
+    function updateFlightInsurance
+                                    (
+                                        uint insuranceId,
+                                        uint amountToPay
+                                    )
+                                    external
+                                    requireIsOperational
+    {
+        insurances[insuranceId].amountToPay = amountToPay;
+        emit FlightInsuranceUpdated(insuranceId, insurances[insuranceId].airline, insurances[insuranceId].flightCode, insurances[insuranceId].amountToPay);
     }
 
 
@@ -407,11 +593,33 @@ contract FlightSuretyData {
     *
     */   
     function buy
-                            (                             
+                            (
+                                bytes32 flightKey,
+                                address passenger,
+                                uint amount                            
                             )
                             external
-                            payable
+                            requireIsOperational
     {
+        string flightCode = flights[flightKey].flightCode;
+        address airline = flights[flightKey].airline;
+        passengers[passenger] = Passanger({
+                                            isRegistered: true,
+                                            balance: 0,
+                                            insuranceIds: new uint256[](0)
+                                        });
+        insurances[insuranceId] = FlightInsurance({
+                                                    airline: airline,
+                                                    flightCode: flightCode,
+                                                    flightKey: flightKey,
+                                                    amountPayed: amount,
+                                                    amountToPay: 0,
+                                                    isRegistered: true,
+                                                    isRefunded: false
+                                                });
+        passengers[passenger].insuranceIds.push(insuranceId);
+        insuranceId++;
+        emit InsurancePurchased(passenger, airline, flightCode, amount);
 
     }
 
@@ -420,10 +628,23 @@ contract FlightSuretyData {
     */
     function creditInsurees
                                 (
+                                    address passenger
                                 )
                                 external
-                                pure
+                                requireIsOperational
     {
+        for (uint i=0; i < passengers[passenger].insuranceIds.length; i++) {
+            uint insuranceId = passengers[passenger].insuranceIds[i];
+            uint amount = insurances[insuranceId].amountToPay;
+            require(airlineBalances[insurances[insuranceId].airline] >= amount, "Airline has not enought funds to pay");
+            insurances[insuranceId].isRefunded = true;
+            airlineBalances[insurances[insuranceId].airline] = airlineBalances[insurances[insuranceId].airline].sub(amount);
+            passengers[passenger].balance = passengers[passenger].balance.add(amount);
+
+            emit InsuranceCredited(passenger, insurances[insuranceId].flightCode, amount);
+        }
+
+
     }
     
 
@@ -433,10 +654,16 @@ contract FlightSuretyData {
     */
     function pay
                             (
+                                address passenger,
+                                uint amount
                             )
                             external
-                            pure
+                            payable
+                            requireIsOperational
     {
+        passengers[passenger].balance = passengers[passenger].balance.sub(amount);
+        passenger.transfer(amount);
+        emit InsureeWithdrawn(passenger, amount);
     }
 
    /**
@@ -453,7 +680,7 @@ contract FlightSuretyData {
                             requireIsOperational
     {
         airlines[airline].isFunded = true;
-        airlineBalances[airline].add(amount);
+        airlineBalances[airline] = airlineBalances[airline].add(amount);
         // Emit event
         emit AirlineFunded(airline, amount);
 
